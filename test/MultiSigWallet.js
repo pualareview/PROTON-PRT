@@ -161,9 +161,8 @@ contract('MultiSigWallet', function(accounts){
     let balance = await token.balanceOf(accounts[5]);
     assert.equal(balance.toNumber(), 5500 * (10 ** 18));
 
-    while (web3.eth.blockNumber <= endBlock) {
-      web3.currentProvider.send({'method': 'evm_mine'});
-    }
+    // mine
+    utils.mineToBlockHeight(endBlock + 1);
 
     let functionData = utils.getFunctionEncoding('finalize()', []);
     let receipt = await wallet.submitTransaction(token.address, 0, functionData, { from: accounts[0] });

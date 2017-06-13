@@ -1,5 +1,5 @@
 // From OpenZeppelin/zeppelin-solidity
-export default async function (promise) {
+export default async function (promise, err) {
   try {
     await promise;
   } catch (error) {
@@ -17,5 +17,5 @@ export default async function (promise) {
     );
     return;
   }
-  assert.fail('Expected throw not received');
+  assert.fail(err || 'Expected throw not received');
 };
