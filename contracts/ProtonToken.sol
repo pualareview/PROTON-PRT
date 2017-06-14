@@ -3,9 +3,7 @@ pragma solidity ^0.4.11;
 import "./StandardToken.sol";
 import "./SafeMath.sol";
 
-contract ProtonToken is StandardToken {
-  using SafeMath for uint256;
-
+contract ProtonToken is StandardToken, SafeMath {
   // metadata
   string public constant name = "Proton Token";
   string public constant symbol = "PRT";
@@ -25,6 +23,11 @@ contract ProtonToken is StandardToken {
   uint256 public tokenCreationCap = 90000 * tokenExchangeRate * (10**decimals);
   uint256 public prtFund = 45000 * tokenExchangeRate * (10**decimals);   // PRT reserved for internal use
   uint256 public tokenCreationMin = 70000 * tokenExchangeRate * 10**decimals;
+
+  // For testnet
+  // uint256 public tokenCreationCap = 10 * tokenExchangeRate * (10**decimals);
+  // uint256 public prtFund = 5 * tokenExchangeRate * (10**decimals);   // PRT reserved for internal use
+  // uint256 public tokenCreationMin = 6 * tokenExchangeRate * 10**decimals;
 
 
   // events
@@ -52,8 +55,8 @@ contract ProtonToken is StandardToken {
     if (block.number > fundingEndBlock) throw;
     if (msg.value == 0) throw;
 
-    uint256 tokens = msg.value.mul(tokenExchangeRate); // check that we're not over totals
-    uint256 checkedSupply = totalSupply.add(tokens);
+    uint256 tokens = safeMul(msg.value, tokenExchangeRate); // check that we're not over totals
+    uint256 checkedSupply = safeAdd(totalSupply, tokens);
 
     // return money if something goes wrong
     if (tokenCreationCap < checkedSupply) throw;  // odd fractions won't be found
@@ -84,7 +87,7 @@ contract ProtonToken is StandardToken {
     uint256 prtVal = balances[msg.sender];
     if (prtVal == 0) throw;
     balances[msg.sender] = 0;
-    totalSupply = totalSupply.sub(prtVal); // reduce total supply by prtVal
+    totalSupply = safeSub(totalSupply, prtVal); // reduce total supply by prtVal
     uint256 ethVal = prtVal / tokenExchangeRate; // should be safe; previous throws covers edges
     LogRefund(msg.sender, ethVal); // Log refund
     if (!msg.sender.send(ethVal)) {

@@ -3,7 +3,6 @@ import assertThrows from "./helpers/assertThrows";
 
 let MultiSigWallet = artifacts.require("./MultiSigWallet.sol");
 let ProtonToken = artifacts.require("./ProtonToken.sol");
-let SafeMath = artifacts.require("./SafeMath.sol");
 
 contract('MultiSigWallet', function(accounts){
   it('allows ownership changes', async function(){
@@ -139,42 +138,5 @@ contract('MultiSigWallet', function(accounts){
     let numConfs = await wallet.getConfirmationCount(txid);
     assert.equal(numConfs, 3);
     let owners = await wallet.getOwners();
-  });
-
-  it('interact with crowdfund using token contract', async function(){
-    let safeMath = await SafeMath.new();
-    let wallet = await MultiSigWallet.new(accounts.slice(0, 5), 2);
-    const upgradeMaster = accounts[0];
-    const startBlock = web3.eth.blockNumber + 1;
-    const endBlock = startBlock + 10;
-
-    // link safemath
-    ProtonToken.link('SafeMath', safeMath.address);
-    let token = await ProtonToken.new(wallet.address, upgradeMaster, startBlock, endBlock);
-    let tokenAddress = token.address;
-
-    // Get some token
-    let tokenReceipt = await token.sendTransaction({from: accounts[5], value: web3.toWei(1, 'ether')});
-    assert.equal(tokenReceipt.logs[0].args._to, accounts[5]);
-    assert.equal(tokenReceipt.logs[0].args._value, 5500 * (10 ** 18));
-
-    let balance = await token.balanceOf(accounts[5]);
-    assert.equal(balance.toNumber(), 5500 * (10 ** 18));
-
-    // mine
-    utils.mineToBlockHeight(endBlock + 1);
-
-    let functionData = utils.getFunctionEncoding('finalize()', []);
-    let receipt = await wallet.submitTransaction(token.address, 0, functionData, { from: accounts[0] });
-
-    let txid = receipt.logs[0].args.transactionId.toNumber();
-    assert.equal(receipt.logs.length, 2);
-    assert.equal(receipt.logs[0].event,'Submission');
-    assert.equal(receipt.logs[1].event,'Confirmation');
-
-    receipt = await wallet.confirmTransaction(txid, { from: accounts[2] });
-    assert.equal(receipt.logs.length, 2);
-    assert.equal(receipt.logs[0].event,'Confirmation');
-    assert.equal(receipt.logs[1].event,'ExecutionFailure');
   });
 });
