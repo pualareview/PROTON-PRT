@@ -231,6 +231,14 @@ contract('ProtonToken', function(accounts) {
       assert.equal(prtBalance.toNumber(), 0, "Account will have some 0 PRT balance");
     });
 
+    it('Refund not allowed again', async function(){
+      assertThrows(token.refund({from: accounts[5]}), "Refund should not allowed again");
+    });
+
+    it('Refund from non-investor not allowed', async function(){
+      assertThrows(token.refund({from: accounts[6]}), "Refund from non-investor should fail");
+    });
+
     it('Finalize from other account not allowed', async function(){
       assertThrows(token.finalize({from: accounts[5]}), "Finalize not allowed from any account");
     });
