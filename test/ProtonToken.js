@@ -5,7 +5,8 @@ let MultiSigWallet = artifacts.require("./MultiSigWallet.sol");
 let ProtonToken = artifacts.require("./ProtonToken.sol");
 
 contract('ProtonToken', function(accounts) {
-  const PRT_RATIO = 5500;
+  const PRT_RATIO = 4500;
+  const PRT_BONUS = 500;
 
   describe('Before crowdsale', async function() {
     let wallet;
@@ -19,7 +20,7 @@ contract('ProtonToken', function(accounts) {
 
       owner = accounts[0];
       startBlock = web3.eth.blockNumber + 10;
-      endBlock = startBlock + 20;
+      endBlock = startBlock + 10;
 
       // token creation
       token = await ProtonToken.new(wallet.address, owner, startBlock, endBlock);
@@ -52,7 +53,7 @@ contract('ProtonToken', function(accounts) {
     });
   });
 
-  describe('Finalize crowdsale', async function() {
+  describe('Pre launch', async function() {
     let wallet;
     let token;
     let owner;
@@ -70,14 +71,21 @@ contract('ProtonToken', function(accounts) {
       token = await ProtonToken.new(wallet.address, owner, startBlock, endBlock);
     });
 
-    it('Finalize - successful', async function() {
+    it('Cannot change start and end block untill pre launch is done', async function() {
       // Get some token
       let tokenReceipt = await token.sendTransaction({from: accounts[5], value: web3.toWei(1, 'ether')});
+      assert.equal(tokenReceipt.logs[0].event, 'GiveBonus');
       assert.equal(tokenReceipt.logs[0].args._to, accounts[5]);
-      assert.equal(tokenReceipt.logs[0].args._value.toNumber(), PRT_RATIO * (10 ** 18));
+      assert.equal(tokenReceipt.logs[0].args._value.toNumber(), PRT_BONUS * (10 ** 18));
+      assert.equal(tokenReceipt.logs[1].event, 'CreatePRT');
+      assert.equal(tokenReceipt.logs[1].args._to, accounts[5]);
+      assert.equal(tokenReceipt.logs[1].args._value.toNumber(), PRT_RATIO * (10 ** 18));
 
       let prtBalance = await token.balanceOf(accounts[5]);
-      assert.equal(prtBalance.toNumber(), PRT_RATIO * (10 ** 18));
+      assert.equal(prtBalance.toNumber(), (PRT_RATIO + PRT_BONUS) * (10 ** 18));
+
+      let ownerBalance = await token.balanceOf(owner);
+      assert.equal(ownerBalance.toNumber(), ((PRT_RATIO * 5) - (PRT_BONUS * 1)) * (10 ** 18)); // give bonus from reserved fund
 
       let supply = await token.totalSupply();
       assert.equal(supply.toNumber(), 6 * PRT_RATIO * (10 ** 18));
@@ -89,10 +97,86 @@ contract('ProtonToken', function(accounts) {
       // mine
       utils.mineToBlockHeight(endBlock + 1);
 
+      // try finalize
       let functionData = utils.getFunctionEncoding('finalize()', []);
       let receipt = await wallet.submitTransaction(token.address, 0, functionData, { from: accounts[0] });
 
       let txid = receipt.logs[0].args.transactionId.toNumber();
+      assert.equal(receipt.logs.length, 2);
+      assert.equal(receipt.logs[0].event,'Submission');
+      assert.equal(receipt.logs[1].event,'Confirmation');
+
+      receipt = await wallet.confirmTransaction(txid, { from: accounts[2] });
+      assert.equal(receipt.logs.length, 2);
+      assert.equal(receipt.logs[0].event,'Confirmation');
+      assert.equal(receipt.logs[1].event,'ExecutionFailure');
+    });
+  });
+
+  describe('Finalize crowdsale', async function() {
+    let wallet;
+    let token;
+    let owner;
+    let startBlock;
+    let endBlock;
+
+    beforeEach(async function(){
+      wallet = await MultiSigWallet.new(accounts.slice(0, 5), 2);
+
+      owner = accounts[0];
+      startBlock = web3.eth.blockNumber + 1;
+      endBlock = startBlock + 5;
+
+      // token creation
+      token = await ProtonToken.new(wallet.address, owner, startBlock, endBlock);
+    });
+
+    it('Finalize - successful', async function() {
+      // Get some token
+      let tokenReceipt = await token.sendTransaction({from: accounts[5], value: web3.toWei(1, 'ether')});
+
+      // mine
+      utils.mineToBlockHeight(endBlock + 1);
+
+      startBlock = endBlock + 5;
+      endBlock = startBlock + 5;
+
+      let functionData = utils.getFunctionEncoding('setupCrowdsale(uint256,uint256)', [startBlock, endBlock]);
+      let receipt = await wallet.submitTransaction(token.address, 0, functionData, { from: accounts[0] });
+
+      let txid = receipt.logs[0].args.transactionId.toNumber();
+      receipt = await wallet.confirmTransaction(txid, { from: accounts[2] });
+
+      assert.equal(await token.fundingStartBlock(), startBlock);
+      assert.equal(await token.fundingEndBlock(), endBlock);
+
+      // mine
+      utils.mineToBlockHeight(startBlock);
+
+      tokenReceipt = await token.sendTransaction({from: accounts[6], value: web3.toWei(1, 'ether')});
+      assert.equal(tokenReceipt.logs[0].event, 'GiveBonus');
+      assert.equal(tokenReceipt.logs[0].args._to, accounts[6]);
+      assert.equal(tokenReceipt.logs[0].args._value.toNumber(), PRT_BONUS * (10 ** 18));
+      assert.equal(tokenReceipt.logs[1].event, 'CreatePRT');
+      assert.equal(tokenReceipt.logs[1].args._to, accounts[6]);
+      assert.equal(tokenReceipt.logs[1].args._value.toNumber(), PRT_RATIO * (10 ** 18));
+
+      let prtBalance = await token.balanceOf(accounts[6]);
+      assert.equal(prtBalance.toNumber(), (PRT_RATIO + PRT_BONUS) * (10 ** 18));
+
+      let ownerBalance = await token.balanceOf(owner);
+      assert.equal(ownerBalance.toNumber(), ((PRT_RATIO * 5) - (PRT_BONUS * 2)) * (10 ** 18)); // give bonus from reserved fund
+
+      let supply = await token.totalSupply();
+      assert.equal(supply.toNumber(), 7 * PRT_RATIO * (10 ** 18));
+
+      // mine
+      utils.mineToBlockHeight(endBlock + 1);
+
+      functionData = utils.getFunctionEncoding('finalize()', []);
+      receipt = await wallet.submitTransaction(token.address, 0, functionData, { from: accounts[0] });
+
+      txid = receipt.logs[0].args.transactionId.toNumber();
       assert.equal(receipt.logs.length, 2);
       assert.equal(receipt.logs[0].event,'Submission');
       assert.equal(receipt.logs[1].event,'Confirmation');
@@ -109,17 +193,21 @@ contract('ProtonToken', function(accounts) {
 
       // check wallet balance
       fundBalance = web3.fromWei(web3.eth.getBalance(wallet.address), 'ether');
-      assert.equal(fundBalance.toNumber(), 1, "Wallet should have 1 ether");
+      assert.equal(fundBalance.toNumber(), 2, "Wallet should have 2 ether");
     });
 
     it('Finalize - failed', async function() {
       // Get some token
       let tokenReceipt = await token.sendTransaction({from: accounts[5], value: web3.toWei(0.5, 'ether')});
+      assert.equal(tokenReceipt.logs[0].event, 'GiveBonus');
       assert.equal(tokenReceipt.logs[0].args._to, accounts[5]);
-      assert.equal(tokenReceipt.logs[0].args._value.toNumber(), 0.5 * PRT_RATIO * (10 ** 18));
+      assert.equal(tokenReceipt.logs[0].args._value.toNumber(), (PRT_BONUS * 0.5) * (10 ** 18));
+      assert.equal(tokenReceipt.logs[1].event, 'CreatePRT');
+      assert.equal(tokenReceipt.logs[1].args._to, accounts[5]);
+      assert.equal(tokenReceipt.logs[1].args._value.toNumber(), (PRT_RATIO * 0.5) * (10 ** 18));
 
       let balance = await token.balanceOf(accounts[5]);
-      assert.equal(balance.toNumber(), 0.5 * PRT_RATIO * (10 ** 18));
+      assert.equal(balance.toNumber(), ((0.5 * PRT_RATIO) + (0.5 * PRT_BONUS))  * (10 ** 18));
 
       // check token balance
       let fundBalance = web3.fromWei(web3.eth.getBalance(token.address), 'ether');
@@ -131,10 +219,22 @@ contract('ProtonToken', function(accounts) {
       // mine
       utils.mineToBlockHeight(endBlock + 1);
 
-      let functionData = utils.getFunctionEncoding('finalize()', []);
+      // set up crowdsale
+      startBlock = endBlock + 5;
+      endBlock = startBlock + 5;
+      let functionData = utils.getFunctionEncoding('setupCrowdsale(uint256,uint256)', [startBlock, endBlock]);
       let receipt = await wallet.submitTransaction(token.address, 0, functionData, { from: accounts[0] });
 
       let txid = receipt.logs[0].args.transactionId.toNumber();
+      receipt = await wallet.confirmTransaction(txid, { from: accounts[2] });
+
+      // mine
+      utils.mineToBlockHeight(endBlock + 1);
+
+      functionData = utils.getFunctionEncoding('finalize()', []);
+      receipt = await wallet.submitTransaction(token.address, 0, functionData, { from: accounts[0] });
+
+      txid = receipt.logs[0].args.transactionId.toNumber();
       assert.equal(receipt.logs.length, 2);
       assert.equal(receipt.logs[0].event,'Submission');
       assert.equal(receipt.logs[1].event,'Confirmation');
@@ -174,10 +274,21 @@ contract('ProtonToken', function(accounts) {
       await token.sendTransaction({from: accounts[5], value: web3.toWei(0.5, 'ether')});
       // mine
       utils.mineToBlockHeight(endBlock + 1);
-      // finalize
-      let functionData = utils.getFunctionEncoding('finalize()', []);
+
+      startBlock = endBlock + 5;
+      endBlock = startBlock + 5;
+      let functionData = utils.getFunctionEncoding('setupCrowdsale(uint256,uint256)', [startBlock, endBlock]);
       let receipt = await wallet.submitTransaction(token.address, 0, functionData, { from: accounts[0] });
       let txid = receipt.logs[0].args.transactionId.toNumber();
+      await wallet.confirmTransaction(txid, { from: accounts[2] });
+
+      // mine
+      utils.mineToBlockHeight(endBlock + 1);
+
+      // finalize
+      functionData = utils.getFunctionEncoding('finalize()', []);
+      receipt = await wallet.submitTransaction(token.address, 0, functionData, { from: accounts[0] });
+      txid = receipt.logs[0].args.transactionId.toNumber();
       await wallet.confirmTransaction(txid, { from: accounts[2] });
     });
 
@@ -186,10 +297,10 @@ contract('ProtonToken', function(accounts) {
       assert.equal(supply.toNumber(), PRT_RATIO * 5.5 * (10 ** 18));
 
       let balance = await token.balanceOf(owner);
-      assert.equal(balance.toNumber(), PRT_RATIO * 5 * (10 ** 18));
+      assert.equal(balance.toNumber(), ((PRT_RATIO * 5) - (PRT_BONUS * 0.5)) * (10 ** 18));
 
       balance = await token.balanceOf(accounts[5]);
-      assert.equal(balance.toNumber(), PRT_RATIO * 0.5 * (10 ** 18));
+      assert.equal(balance.toNumber(), ((PRT_RATIO * 0.5) + (PRT_BONUS * 0.5))  * (10 ** 18));
 
       accounts.slice(6).forEach(async (account)=>{
         balance = await token.balanceOf(account);
@@ -211,7 +322,7 @@ contract('ProtonToken', function(accounts) {
       assert.equal(walletEtherBalance.toNumber(), 0, "Wallet should have 0 ether");
 
       let prtBalance = await token.balanceOf(accounts[5]);
-      assert.equal(prtBalance.toNumber(), PRT_RATIO * 0.5 * (10 ** 18), "Account will have some PRT balance");
+      assert.equal(prtBalance.toNumber(), ((PRT_RATIO * 0.5) + (PRT_BONUS * 0.5)) * (10 ** 18), "Account will have some PRT balance");
 
       // Get refund
       let receipt = await token.refund({from: accounts[5]});
@@ -262,14 +373,30 @@ contract('ProtonToken', function(accounts) {
       token = await ProtonToken.new(wallet.address, owner, startBlock, endBlock);
       // Get some token
       await token.sendTransaction({from: accounts[5], value: web3.toWei(1, 'ether')});
-      // Get some token
-      await token.sendTransaction({from: accounts[6], value: web3.toWei(2, 'ether')});
       // mine
       utils.mineToBlockHeight(endBlock + 1);
-      // finalize
-      let functionData = utils.getFunctionEncoding('finalize()', []);
+
+      startBlock = endBlock + 5;
+      endBlock = startBlock + 5;
+      let functionData = utils.getFunctionEncoding('setupCrowdsale(uint256,uint256)', [startBlock, endBlock]);
       let receipt = await wallet.submitTransaction(token.address, 0, functionData, { from: accounts[0] });
       let txid = receipt.logs[0].args.transactionId.toNumber();
+      await wallet.confirmTransaction(txid, { from: accounts[2] });
+
+      // mine
+      utils.mineToBlockHeight(startBlock);
+
+      // Get some token
+      await token.sendTransaction({from: accounts[6], value: web3.toWei(1, 'ether')});
+      await token.sendTransaction({from: accounts[7], value: web3.toWei(1, 'ether')}); // no bonus for this investor
+
+      // mine
+      utils.mineToBlockHeight(endBlock + 1);
+
+      // finalize
+      functionData = utils.getFunctionEncoding('finalize()', []);
+      receipt = await wallet.submitTransaction(token.address, 0, functionData, { from: accounts[0] });
+      txid = receipt.logs[0].args.transactionId.toNumber();
       await wallet.confirmTransaction(txid, { from: accounts[2] });
     });
 
@@ -278,22 +405,25 @@ contract('ProtonToken', function(accounts) {
       assert.equal(supply.toNumber(), PRT_RATIO * 8 * (10 ** 18));
 
       let balance = await token.balanceOf(owner);
-      assert.equal(balance.toNumber(), PRT_RATIO * 5 * (10 ** 18));
+      assert.equal(balance.toNumber(), ((PRT_RATIO * 5) - (PRT_BONUS * 2)) * (10 ** 18));
 
       balance = await token.balanceOf(accounts[5]);
-      assert.equal(balance.toNumber(), PRT_RATIO * 1 * (10 ** 18));
+      assert.equal(balance.toNumber(), (PRT_RATIO + PRT_BONUS) * 1 * (10 ** 18));
 
       balance = await token.balanceOf(accounts[6]);
-      assert.equal(balance.toNumber(), PRT_RATIO * 2 * (10 ** 18));
+      assert.equal(balance.toNumber(), (PRT_RATIO + PRT_BONUS) * 1 * (10 ** 18));
 
-      accounts.slice(7).forEach(async (account)=>{
+      balance = await token.balanceOf(accounts[7]);
+      assert.equal(balance.toNumber(), PRT_RATIO * 1 * (10 ** 18));
+
+      accounts.slice(8).forEach(async (account)=>{
         balance = await token.balanceOf(account);
         assert.equal(balance.toNumber(), 0);
       });
     });
 
     it('Create token not allowed', async function(){
-      assertThrows(token.sendTransaction({from: accounts[7], value: web3.toWei(1, 'ether')}), "Create token not allowed");
+      assertThrows(token.sendTransaction({from: accounts[8], value: web3.toWei(1, 'ether')}), "Create token not allowed");
     });
 
     it('Refund not allowed', async function(){
