@@ -138,6 +138,9 @@ contract('ProtonToken', function(accounts) {
       // mine
       utils.mineToBlockHeight(endBlock + 1);
 
+      // confirm crowdsale
+      assert.equal(await token.confirmCrowdsale(), false);
+
       startBlock = endBlock + 5;
       endBlock = startBlock + 5;
 
@@ -149,6 +152,7 @@ contract('ProtonToken', function(accounts) {
 
       assert.equal(await token.fundingStartBlock(), startBlock);
       assert.equal(await token.fundingEndBlock(), endBlock);
+      assert.equal(await token.confirmCrowdsale(), true);
 
       // mine
       utils.mineToBlockHeight(startBlock);
